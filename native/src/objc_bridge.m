@@ -17,6 +17,7 @@
 #include "controller_bridge.h"
 #include "game_profile.h"
 #include "name_match.h"
+#include "metal_shadow.h"
 
 #define GL_SILENCE_DEPRECATION 1
 #import <AppKit/AppKit.h>
@@ -2507,6 +2508,7 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     static bool heap_gameplay_level_skip_posted;
     uint64_t swap_count = ++objc_bridge_swap_count;
     draw_phase_report(swap_count);
+    lp32_metal_shadow_end_frame(swap_count);
     if (!installed_gl_trace_signal) {
         initialize_gl_trace_output();
         install_gl_trace_signal();
@@ -5463,6 +5465,7 @@ FAST_GL(glDrawRangeElements)
                             (GLsizei)arguments[3], arguments[4],
                             (const void *)(uintptr_t)arguments[5]);
     }
+    lp32_metal_shadow_draw();
     uint64_t drawn = measure ? hitch_now() : 0;
     probe_trace_pixel("glDrawRangeElements");
     restore_unbound_fragment_samplers(&sampler_restore);
@@ -5482,6 +5485,7 @@ FAST_GL(glDrawArrays)
                     0, 0, (GLsizei)arguments[2], 0, 0, false);
     uint64_t prepared = measure ? hitch_now() : 0;
     glDrawArrays(arguments[0], arguments[1], arguments[2]);
+    lp32_metal_shadow_draw();
     uint64_t drawn = measure ? hitch_now() : 0;
     probe_trace_pixel("glDrawArrays");
     restore_unbound_fragment_samplers(&sampler_restore);
