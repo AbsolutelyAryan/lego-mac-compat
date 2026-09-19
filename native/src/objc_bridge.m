@@ -9,6 +9,7 @@
 #include "carbon_bridge.h"
 #include "cfnetwork_bridge.h"
 #include "hitch_recorder.h"
+#include "performance_hud.h"
 #include "arb_program_guard.h"
 #include "audio_bridge.h"
 #include "arb_sampler_usage.h"
@@ -2891,15 +2892,18 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     }
     trace_gl_frame_boundary();
     if (!compat_runtime32_frame_profile_enabled) {
-        uint64_t work_end = hitch_recorder_enabled ? hitch_now() : 0;
+        uint64_t work_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         [[self openGLContext] flushBuffer];
-        uint64_t flush_end = hitch_recorder_enabled ? hitch_now() : 0;
+        uint64_t flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         frame_pacer_wait([self window]);
+        uint64_t present_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         if (hitch_recorder_enabled) {
-            hitch_frame(swap_count, work_end, flush_end, hitch_now(),
+            hitch_frame(swap_count, work_end, flush_end, present_end,
                         frame_pacer_interval_ns,
                         [NSApp isActive] || getenv("LP32_BACKGROUND_TEST"));
         }
+        lp32_performance_hud_frame([self window], present_end, work_end,
+                                    flush_end, frame_pacer_interval_ns);
         audio_bridge32_note_frame_presented();
         return;
     }
@@ -3056,7 +3060,7 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
        dispatch - flush. */
     uint64_t flush_start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     [[self openGLContext] flushBuffer];
-    uint64_t hitch_flush_end = hitch_recorder_enabled ? hitch_now() : 0;
+    uint64_t hitch_flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     frame_pacer_wait([self window]);
     uint64_t flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (hitch_recorder_enabled) {
@@ -3064,6 +3068,8 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
                     frame_pacer_interval_ns,
                     [NSApp isActive] || getenv("LP32_BACKGROUND_TEST"));
     }
+    lp32_performance_hud_frame([self window], flush_end, flush_start,
+                                hitch_flush_end, frame_pacer_interval_ns);
     audio_bridge32_note_frame_presented();
     stats.last_flush_ns = flush_end - flush_start;
     stats.flush_ns_total += stats.last_flush_ns;
