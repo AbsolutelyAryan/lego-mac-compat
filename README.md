@@ -263,3 +263,8 @@ recording, set `LP32_DRAW_PHASE_PROFILE=1` for a short launch. Every 60 swaps,
 `gl-render.log` reports setup, host OpenGL call, and cleanup time for indexed
 and array draws separately, plus the slowest call's program IDs. The probe
 adds timestamps to each draw and is disabled during normal play.
+For an A/B test of Apple's indexed draw paths, set
+`LP32_PLAIN_INDEXED_DRAWS=1` to send the game's indexed draws through
+`glDrawElements` instead of `glDrawRangeElements`. This is experimental and
+off by default; compare the same scene with the phase probe and inspect the
+image before considering it as a normal mode.

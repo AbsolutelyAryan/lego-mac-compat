@@ -175,6 +175,21 @@ static bool draw_phase_enabled(void)
     return value != 0;
 }
 
+/* glDrawRangeElements has the same rendering result as glDrawElements for
+   valid index ranges. This opt-in diagnostic compares Apple's driver paths
+   without changing game data, vertex buffers, or visual settings. */
+static bool plain_indexed_draw_enabled(void)
+{
+    static int enabled = -1;
+    int value = __atomic_load_n(&enabled, __ATOMIC_RELAXED);
+    if (value < 0) {
+        const char *option = getenv("LP32_PLAIN_INDEXED_DRAWS");
+        value = option && option[0] && strcmp(option, "0") != 0;
+        __atomic_store_n(&enabled, value, __ATOMIC_RELAXED);
+    }
+    return value != 0;
+}
+
 static void draw_phase_note(unsigned kind, uint64_t setup, uint64_t driver,
                             uint64_t cleanup, GLsizei vertices)
 {
@@ -5440,9 +5455,14 @@ FAST_GL(glDrawRangeElements)
                     arguments[1], arguments[2], (GLsizei)arguments[3],
                     arguments[4], (uintptr_t)arguments[5], true);
     uint64_t prepared = measure ? hitch_now() : 0;
-    glDrawRangeElements(arguments[0], arguments[1], arguments[2],
-                        (GLsizei)arguments[3], arguments[4],
-                        (const void *)(uintptr_t)arguments[5]);
+    if (plain_indexed_draw_enabled()) {
+        glDrawElements(arguments[0], (GLsizei)arguments[3], arguments[4],
+                       (const void *)(uintptr_t)arguments[5]);
+    } else {
+        glDrawRangeElements(arguments[0], arguments[1], arguments[2],
+                            (GLsizei)arguments[3], arguments[4],
+                            (const void *)(uintptr_t)arguments[5]);
+    }
     uint64_t drawn = measure ? hitch_now() : 0;
     probe_trace_pixel("glDrawRangeElements");
     restore_unbound_fragment_samplers(&sampler_restore);
