@@ -262,10 +262,18 @@ from the game's OpenGL window.
 `native/build/metal_probe --stress 2000` submits a simple 2,000-draw Metal
 frame for command-overhead comparison; it is a synthetic workload, not a
 claim that LEGO's shaders or state have been ported.
+The new C++/Objective-C++ renderer ABI is exercised with
+`make -C native metal-renderer-probe`; this is the foundation for replacing
+the shadow implementation incrementally without changing the legacy loader
+ABI.
 For a same-frame diagnostic, `LP32_METAL_SHADOW=1` mirrors each game draw into
 an offscreen native Metal encoder while OpenGL continues presenting. Add
 `LP32_METAL_SHADOW_WAIT=1` to wait for completion and log comparable per-frame
 cost. This is opt-in and intentionally does not replace the visible renderer.
+`LP32_METAL_BACKEND=1` is the forward-facing name for this experimental
+backend boundary; it currently uses the same shadow implementation while the
+guest shader, texture, and render-target translators are migrated. OpenGL
+remains the fallback until a complete Metal frame is available.
 
 Every compatibility app built with this loader shows a small click-through
 HUD at the top left of its game window. It reports measured FPS against the
