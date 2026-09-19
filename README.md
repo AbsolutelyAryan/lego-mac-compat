@@ -72,6 +72,26 @@ polls and cursor warps are suppressed while the real app is inactive.
 Gameplay continues too, so pause manually before leaving an active level.
 Test with `make -C native test-focus-policy test-focus-bridge`.
 
+By default, an inactive app is never treated as focused, even if AppKit keeps
+a stale key-window flag. A windowed game also needs its own key window; a
+borderless fullscreen game tolerates transient key-window assignment. The
+Audio Unit bridge renders silence while the guest is unfocused and waits for
+its first newly presented frame before resuming sound. The graph pool remains
+enabled by default; `LP32_NO_AUDIO_GRAPH_POOL=1` is a diagnostic A/B switch.
+Core Audio graph teardown still needs validation across scene transitions and
+other titles.
+
+For the LEGO Marvel Super Heroes compatibility app, a scene-transition crash
+inside macOS's audio converter has so far been avoided by setting the app's
+`LP32QuarantineAudioGraphs` Info.plist Boolean to true. The equivalent process
+override is `LP32_QUARANTINE_AUDIO_GRAPHS=1` (`0` disables it). This is a
+temporary stability mode: it stops retired native graphs but retains their
+memory until the process exits. Lifecycle work remains on the audio worker
+and the pre-opened graph pool remains available; quarantine does not imply
+`LP32_SYNC_AUDIO_TEARDOWN`. Its
+memory use and audio performance need longer gameplay validation before it
+can be considered a general fix; other games keep their normal default.
+
 Pirates ships with a SecuROM-packed executable. The build recovers the plain
 Mach-O from it automatically: `native/tools/unpack_securom.py` emulates the
 packer's stub with Unicorn and writes `native/build/LEGOPirates.unpacked.macbin`

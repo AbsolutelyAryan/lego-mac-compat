@@ -405,6 +405,13 @@ test-tlv-bridge: $(BUILD_DIR)/test_tlv_bridge
 	arch -x86_64 ./$(BUILD_DIR)/test_tlv_bridge
 
 .PHONY: test-sound-manager-bridge
+.PHONY: test-audio-graph-quarantine
+$(BUILD_DIR)/test_audio_graph_quarantine: tests/test_audio_graph_quarantine.c src/audio_bridge.c src/audio_bridge.h | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) -Isrc tests/test_audio_graph_quarantine.c -framework AudioToolbox -framework CoreAudio -framework CoreFoundation -o $@
+
+test-audio-graph-quarantine: $(BUILD_DIR)/test_audio_graph_quarantine
+	arch -x86_64 ./$(BUILD_DIR)/test_audio_graph_quarantine
+
 $(BUILD_DIR)/test_sound_manager_bridge: tests/test_sound_manager_bridge.c src/sound_manager_bridge.c src/sound_manager_bridge.h | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) -Wl,-pagezero_size,0x1000 -Isrc tests/test_sound_manager_bridge.c src/sound_manager_bridge.c -framework AudioToolbox -o $@
 
