@@ -257,3 +257,9 @@ or modify OpenGL state. `LP32_PERF_HUD=0` hides it. Apple Silicon uses unified
 memory, and this OpenGL bridge has no trustworthy public per-process GPU-load
 or dedicated-VRAM metric, so those fields say `n/a` rather than implying CPU
 draw time is GPU utilization.
+
+To investigate a recurring slow draw without enabling per-import hitch
+recording, set `LP32_DRAW_PHASE_PROFILE=1` for a short launch. Every 60 swaps,
+`gl-render.log` reports setup, host OpenGL call, and cleanup time for indexed
+and array draws separately, plus the slowest call's program IDs. The probe
+adds timestamps to each draw and is disabled during normal play.

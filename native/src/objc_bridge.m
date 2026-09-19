@@ -152,6 +152,67 @@ static bool enumerate_guest(id collection,const uint32_t *args,uint64_t *result)
 #define bridge_image (compat_runtime32_image())
 static GLuint trace_vertex_program;
 static GLuint trace_fragment_program;
+static void gl_trace_printf(const char *format, ...);
+
+/* Short, opt-in draw profiling without GPU readback or per-draw file I/O.
+   Keep counters on the render thread; only one line per 60 swaps is written. */
+struct draw_phase_bucket {
+    uint64_t count, setup_ns, driver_ns, cleanup_ns, max_driver_ns;
+    GLuint slow_vertex_program, slow_fragment_program;
+    GLsizei slow_vertices;
+};
+static _Thread_local struct draw_phase_bucket draw_phase_buckets[2];
+
+static bool draw_phase_enabled(void)
+{
+    static int enabled = -1;
+    int value = __atomic_load_n(&enabled, __ATOMIC_RELAXED);
+    if (value < 0) {
+        const char *option = getenv("LP32_DRAW_PHASE_PROFILE");
+        value = option && option[0] && strcmp(option, "0") != 0;
+        __atomic_store_n(&enabled, value, __ATOMIC_RELAXED);
+    }
+    return value != 0;
+}
+
+static void draw_phase_note(unsigned kind, uint64_t setup, uint64_t driver,
+                            uint64_t cleanup, GLsizei vertices)
+{
+    struct draw_phase_bucket *bucket = &draw_phase_buckets[kind];
+    ++bucket->count;
+    bucket->setup_ns += setup;
+    bucket->driver_ns += driver;
+    bucket->cleanup_ns += cleanup;
+    if (driver > bucket->max_driver_ns) {
+        bucket->max_driver_ns = driver;
+        bucket->slow_vertex_program = trace_vertex_program;
+        bucket->slow_fragment_program = trace_fragment_program;
+        bucket->slow_vertices = vertices;
+    }
+}
+
+static void draw_phase_report(uint64_t swap)
+{
+    if (!draw_phase_enabled() || swap % 60 != 0) return;
+    static const char *names[] = {"glDrawRangeElements", "glDrawArrays"};
+    for (unsigned kind = 0; kind < 2; ++kind) {
+        struct draw_phase_bucket *bucket = &draw_phase_buckets[kind];
+        if (bucket->count) {
+            gl_trace_printf("compat32: draw phases swap=%llu kind=%s calls=%llu "
+                            "setup=%.3fms driver=%.3fms cleanup=%.3fms "
+                            "maxDriver=%.3fms vp=%u fp=%u vertices=%d\n",
+                            (unsigned long long)swap, names[kind],
+                            (unsigned long long)bucket->count,
+                            bucket->setup_ns / 1e6, bucket->driver_ns / 1e6,
+                            bucket->cleanup_ns / 1e6,
+                            bucket->max_driver_ns / 1e6,
+                            bucket->slow_vertex_program,
+                            bucket->slow_fragment_program,
+                            bucket->slow_vertices);
+        }
+        memset(bucket, 0, sizeof(*bucket));
+    }
+}
 
 struct gl_frame_diagnostics {
     uint64_t draw_calls;
@@ -2430,6 +2491,7 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     static unsigned heap_gameplay_movement_step;
     static bool heap_gameplay_level_skip_posted;
     uint64_t swap_count = ++objc_bridge_swap_count;
+    draw_phase_report(swap_count);
     if (!installed_gl_trace_signal) {
         initialize_gl_trace_output();
         install_gl_trace_signal();
@@ -5370,29 +5432,41 @@ FAST_GL(glDisableVertexAttribArray)
 FAST_GL(glDrawRangeElements)
 {
     (void)return_address;
+    bool measure = draw_phase_enabled();
+    uint64_t start = measure ? hitch_now() : 0;
     struct sampler_fallback_restore sampler_restore;
     repair_unbound_fragment_samplers(&sampler_restore);
     trace_draw_call("glDrawRangeElements", arguments[0], 0,
                     arguments[1], arguments[2], (GLsizei)arguments[3],
                     arguments[4], (uintptr_t)arguments[5], true);
+    uint64_t prepared = measure ? hitch_now() : 0;
     glDrawRangeElements(arguments[0], arguments[1], arguments[2],
                         (GLsizei)arguments[3], arguments[4],
                         (const void *)(uintptr_t)arguments[5]);
+    uint64_t drawn = measure ? hitch_now() : 0;
     probe_trace_pixel("glDrawRangeElements");
     restore_unbound_fragment_samplers(&sampler_restore);
+    if (measure) draw_phase_note(0, prepared - start, drawn - prepared,
+                                 hitch_now() - drawn, (GLsizei)arguments[3]);
     return 0;
 }
 
 FAST_GL(glDrawArrays)
 {
     (void)return_address;
+    bool measure = draw_phase_enabled();
+    uint64_t start = measure ? hitch_now() : 0;
     struct sampler_fallback_restore sampler_restore;
     repair_unbound_fragment_samplers(&sampler_restore);
     trace_draw_call("glDrawArrays", arguments[0], (GLint)arguments[1],
                     0, 0, (GLsizei)arguments[2], 0, 0, false);
+    uint64_t prepared = measure ? hitch_now() : 0;
     glDrawArrays(arguments[0], arguments[1], arguments[2]);
+    uint64_t drawn = measure ? hitch_now() : 0;
     probe_trace_pixel("glDrawArrays");
     restore_unbound_fragment_samplers(&sampler_restore);
+    if (measure) draw_phase_note(1, prepared - start, drawn - prepared,
+                                 hitch_now() - drawn, (GLsizei)arguments[2]);
     return 0;
 }
 
