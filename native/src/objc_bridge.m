@@ -3096,6 +3096,11 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
 - (BOOL)canBecomeKeyView { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
+/* The original i386 OpenGLView implements both handlers as no-ops: the game
+   reads keyboard state separately. Without them, NSResponder forwards a key
+   press to the end of the chain and AppKit plays the unhandled-key beep. */
+- (void)keyDown:(NSEvent *)event { (void)event; }
+- (void)keyUp:(NSEvent *)event { (void)event; }
 @end
 
 @interface GameWindow : NSObject

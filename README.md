@@ -101,6 +101,11 @@ persist on disk; a bundled storage-library enumeration defect hid later slots
 after relaunch. The shared loader now repairs that directory walker, and fresh
 processes discover and fully read the existing saves. In-game resume and the
 full campaign remain unverified.
+The native replacement `OpenGLView` now absorbs key-down and key-up events,
+matching the original game's empty handlers. The game reads keyboard input
+separately; allowing AppKit to forward these events to the end of the responder
+chain caused its unhandled-key alert sound on every press. This change requires
+a new launch and is not yet verified in a live game session.
 Marvel's achievement submitter now skips a missing Steam stats interface
 instead of dereferencing NULL at `0x249374`. This is a crash guard, not Steam
 integration or an achievement retry queue. An unlock attempted while Steam
