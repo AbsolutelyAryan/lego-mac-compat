@@ -117,7 +117,7 @@ LDFLAGS := -Wl,-no_pie,-pagezero_size,0x1000,-segaddr,__TEXT,0x100000000,-segadd
 all: $(BUILD_DIR)/mode32_probe $(BUILD_DIR)/game_loader
 
 $(BUILD_DIR)/metal_probe: src/metal_probe.m | $(BUILD_DIR)
-	$(CLANG) $(CFLAGS) $^ -framework Foundation -framework Metal -o $@
+	$(CLANG) $(CFLAGS) $^ -framework Foundation -framework Cocoa -framework Metal -framework MetalKit -o $@
 	codesign --force --sign - $@
 
 metal-probe: $(BUILD_DIR)/metal_probe

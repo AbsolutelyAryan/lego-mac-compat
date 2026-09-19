@@ -256,6 +256,9 @@ therefore tests only the host Metal device and an offscreen render pass. It is
 useful for checking device availability and command-encoding overhead, but its
 timings must not be interpreted as LEGO game FPS. A real Metal A/B requires
 porting the guest draw/state/resource translation, not just selecting a flag.
+The `native/build/metal_probe --present` variant additionally presents a
+small real `CAMetalLayer` drawable, verifying the Metal swap path separately
+from the game's OpenGL window.
 
 Every compatibility app built with this loader shows a small click-through
 HUD at the top left of its game window. It reports measured FPS against the
