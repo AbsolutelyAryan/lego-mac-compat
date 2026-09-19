@@ -214,7 +214,45 @@ Reports trigger above 25 ms (or 1.5 times an intentional
 frame cap, whichever is larger), with a five-second cooldown and a limit of 128
 reports per session. Inactive frames do not trigger reports. A report finishes
 after its following frames arrive; abrupt termination can lose the pending
-report. `LP32_HITCH_MS=35` changes the threshold; `LP32_HITCH_LOG=0` disables it,
+report. The same log now includes one-second `summary` rows for active frames:
+frame-time p50/p95/p99 and maximum, counts above 1.5×/2×/3× the game's target,
+and average/maximum work, GL flush, and pacing times. This distinguishes an
+intentional 30 FPS cap from missed frames and shows whether spikes come from
+CPU-side drawing, loading, or waiting. Summary writes happen on the background
+thread; no per-frame disk writes or GPU readbacks are added. These are CPU wall
+timings, not GPU execution timings. Each hitch also marks the first draw for a
+vertex/fragment program pair (`first_pair=1`), and summaries count new pairs.
+That helps test whether a draw spike is shader first-use rather than assuming
+every slow draw is compilation. `LP32_HITCH_MS=35` changes the threshold; `LP32_HITCH_LOG=0` disables it,
 or set `LP32_HITCH_LOG` to an unused absolute file path to redirect it. Other
 titles leave it disabled unless explicitly enabled.
 `make -C native test-hitch-recorder` runs synthetic timing tests without launching a game.
+
+## Reproducible diagnostic launch
+
+The loader already keeps a persistent per-run session log. To additionally
+enable the audio callback/latency trace, Steam bridge calls, timing diagnostics, and hitch
+recording, run:
+
+```
+native/tools/launch_diagnostics.sh native/build/LEGOMarvel-Steam-Compat.app
+```
+
+The script writes a launch log and hitch log under
+`~/Library/Logs/LEGOMarvelCompat/`. It does not enable per-draw GL tracing or
+dump save contents. Per-frame GL and resolution logs are opt-in with
+`LP32_VERBOSE_GL=1`, and high-volume display-transition logs with
+`LP32_VERBOSE_DISPLAY=1`; keeping them off makes frame-time measurements
+more representative. Set `LP32_DIAGNOSTIC_DIR` to collect logs elsewhere.
+
+## Performance HUD
+
+Every compatibility app built with this loader shows a small click-through
+HUD at the top left of its game window. It reports measured FPS against the
+pacing target, p95 frame time, frames above 1.5× target, process CPU use
+(100% = one core), process RAM footprint against total physical RAM, and
+CPU-side render/GL-flush time. It updates twice per second and does not query
+or modify OpenGL state. `LP32_PERF_HUD=0` hides it. Apple Silicon uses unified
+memory, and this OpenGL bridge has no trustworthy public per-process GPU-load
+or dedicated-VRAM metric, so those fields say `n/a` rather than implying CPU
+draw time is GPU utilization.
