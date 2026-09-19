@@ -882,10 +882,10 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    /* Automatic only for Marvel; no full import profiling or draw dumps. */
+    /* Detailed import timing is opt-in: it adds work to every render call,
+       which is measurable in Marvel's draw-heavy scenes. The HUD stays on. */
     const char *hitch_option = getenv("LP32_HITCH_LOG");
-    if ((hitch_option && strcmp(hitch_option, "0")) ||
-        (!hitch_option && lp32_profile()->title == LP32_TITLE_MARVEL)) {
+    if (hitch_option && hitch_option[0] && strcmp(hitch_option, "0")) {
         char path[PATH_MAX];
         const char *home = getenv("HOME");
         int length = snprintf(path, sizeof(path), "%s/Library/Logs/%s/hitches-%ld-%llu.log",
@@ -896,7 +896,7 @@ int main(int argc, char **argv)
         const char *threshold = getenv("LP32_HITCH_MS");
         if (length > 0 && (size_t)length < sizeof(path) &&
             hitch_start(destination, threshold ? strtod(threshold, NULL) : 25.0) == 0) {
-            GUEST_DIAGNOSTIC("compat32: automatic hitch recorder: %s\n", destination);
+            GUEST_DIAGNOSTIC("compat32: hitch recorder: %s\n", destination);
         } else {
             perror("compat32: hitch recorder unavailable");
         }

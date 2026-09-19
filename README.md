@@ -180,9 +180,10 @@ Marvel currently uses its shipped Xbox controller mapping and prompts.
 For silent testing, launch the bundle's executable with `LP32_MUTE_AUDIO=1`.
 This mutes only that process and does not change game settings or system volume.
 
-Marvel automatically records occasional frame hitches during normal play in
-`~/Library/Logs/LEGOMarvelCompat/hitches-<pid>-<timestamp>.log`. Relaunch after
-updating the loader to enable it. Each report contains 32 preceding frames,
+Detailed hitch recording is opt-in to keep normal gameplay smooth. Set
+`LP32_HITCH_LOG=1` before launch to record in
+`~/Library/Logs/LEGOMarvelCompat/hitches-<pid>-<timestamp>.log`.
+Each report contains 32 preceding frames,
 the slow frame, and 8 following frames, with draw counts, CPU time in draws,
 resource uploads, shader compilation, file I/O, waits, audio, GL state changes,
 Objective-C calls and other runtime imports. Nested imports count only toward
@@ -223,8 +224,8 @@ thread; no per-frame disk writes or GPU readbacks are added. These are CPU wall
 timings, not GPU execution timings. Each hitch also marks the first draw for a
 vertex/fragment program pair (`first_pair=1`), and summaries count new pairs.
 That helps test whether a draw spike is shader first-use rather than assuming
-every slow draw is compilation. `LP32_HITCH_MS=35` changes the threshold; `LP32_HITCH_LOG=0` disables it,
-or set `LP32_HITCH_LOG` to an unused absolute file path to redirect it. Other
+every slow draw is compilation. `LP32_HITCH_MS=35` changes the threshold;
+set `LP32_HITCH_LOG` to an unused absolute file path to redirect it. All
 titles leave it disabled unless explicitly enabled.
 `make -C native test-hitch-recorder` runs synthetic timing tests without launching a game.
 
