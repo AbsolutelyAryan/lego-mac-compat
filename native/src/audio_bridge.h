@@ -41,4 +41,9 @@ void audio_bridge32_worker_statistics(struct audio_bridge32_worker_stats *stats)
    the render thread. */
 void audio_bridge32_note_frame_presented(void);
 
+/* Called by the UI bridge when the guest's game window gains or loses focus.
+   Audio callbacks silence themselves while inactive and until the first frame
+   after reactivation, without touching Core Audio from AppKit callbacks. */
+void audio_bridge32_set_guest_focus(int focused);
+
 #endif

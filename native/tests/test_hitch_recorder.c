@@ -42,6 +42,9 @@ int main(void)
     assert(hitch_classify("_glProgramEnvParameters4fvEXT") == HITCH_GL_STATE);
     assert(hitch_classify("_objc_msgSend") == HITCH_OBJC);
     assert(hitch_classify("_AudioUnitRender") == HITCH_AUDIO);
+    assert(hitch_classify("_AUGraphInitialize") == HITCH_AUDIO);
+    assert(hitch_classify("_NewAUGraph") == HITCH_AUDIO);
+    assert(hitch_classify("_DisposeAUGraph") == HITCH_AUDIO);
     assert(!hitch_recorder_enabled);
     char path[128];
     snprintf(path, sizeof(path), "/tmp/lp32-hitch-test-%ld.log", (long)getpid());
@@ -90,6 +93,7 @@ int main(void)
     assert(!strstr(text, " frame=98 "));
     assert(strstr(text, " frame=139 "));
     assert(strstr(text, "present=45.000 work=43.000 flush=1.000 pace=1.000"));
+    assert(strstr(text, "thread_cpu="));
     assert(strstr(text, "draw=1/40.000"));
     assert(strstr(text, "glstate=1/6.000 objc=0/0.000 runtime=1/4.000"));
     assert(!strstr(text, "objc=1/"));
@@ -97,9 +101,18 @@ int main(void)
     assert(strstr(text, "host model="));
     assert(strstr(text, "rosetta="));
     assert(strstr(text, "caller=00abcdef vp=17 fp=28 count=600"));
+    assert(strstr(text, "caller=00abcdef vp=17 fp=28 count=600 first_pair=1"));
+    assert(strstr(text, "new_pairs=1"));
     assert(strstr(text, "worker name=cgCreateProgram"));
+    assert(strstr(text, "summary start="));
+    assert(strstr(text, "target_min=16.667"));
+    assert(strstr(text, "p50="));
+    assert(strstr(text, "thread_cpu_avg="));
+    assert(strstr(text, "over_150="));
+    assert(strstr(text, "over_150=2 over_200=2 over_300=0"));
+    assert(strstr(text, "summaries_dropped=0"));
     assert(strstr(text, "end reports=1 skipped=0"));
     unlink(path);
-    puts("hitch-recorder PASS (threshold, history, workers, cooldown, exclusive nesting, presentation boundaries, host metadata)");
+    puts("hitch-recorder PASS (threshold, history, workers, cooldown, exclusive nesting, presentation boundaries, summaries, host metadata)");
     return 0;
 }

@@ -9,6 +9,7 @@
 #include "carbon_bridge.h"
 #include "cfnetwork_bridge.h"
 #include "hitch_recorder.h"
+#include "performance_hud.h"
 #include "arb_program_guard.h"
 #include "audio_bridge.h"
 #include "arb_sampler_usage.h"
@@ -2891,15 +2892,18 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     }
     trace_gl_frame_boundary();
     if (!compat_runtime32_frame_profile_enabled) {
-        uint64_t work_end = hitch_recorder_enabled ? hitch_now() : 0;
+        uint64_t work_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         [[self openGLContext] flushBuffer];
-        uint64_t flush_end = hitch_recorder_enabled ? hitch_now() : 0;
+        uint64_t flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         frame_pacer_wait([self window]);
+        uint64_t present_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
         if (hitch_recorder_enabled) {
-            hitch_frame(swap_count, work_end, flush_end, hitch_now(),
+            hitch_frame(swap_count, work_end, flush_end, present_end,
                         frame_pacer_interval_ns,
                         [NSApp isActive] || getenv("LP32_BACKGROUND_TEST"));
         }
+        lp32_performance_hud_frame([self window], present_end, work_end,
+                                    flush_end, frame_pacer_interval_ns);
         audio_bridge32_note_frame_presented();
         return;
     }
@@ -3056,7 +3060,7 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
        dispatch - flush. */
     uint64_t flush_start = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     [[self openGLContext] flushBuffer];
-    uint64_t hitch_flush_end = hitch_recorder_enabled ? hitch_now() : 0;
+    uint64_t hitch_flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     frame_pacer_wait([self window]);
     uint64_t flush_end = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (hitch_recorder_enabled) {
@@ -3064,6 +3068,8 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
                     frame_pacer_interval_ns,
                     [NSApp isActive] || getenv("LP32_BACKGROUND_TEST"));
     }
+    lp32_performance_hud_frame([self window], flush_end, flush_start,
+                                hitch_flush_end, frame_pacer_interval_ns);
     audio_bridge32_note_frame_presented();
     stats.last_flush_ns = flush_end - flush_start;
     stats.flush_ns_total += stats.last_flush_ns;
@@ -3096,6 +3102,11 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
 - (BOOL)canBecomeKeyView { return YES; }
 - (BOOL)acceptsFirstResponder { return YES; }
 - (BOOL)acceptsFirstMouse:(NSEvent *)event { (void)event; return YES; }
+/* The original i386 OpenGLView implements both handlers as no-ops: the game
+   reads keyboard state separately. Without them, NSResponder forwards a key
+   press to the end of the chain and AppKit plays the unhandled-key beep. */
+- (void)keyDown:(NSEvent *)event { (void)event; }
+- (void)keyUp:(NSEvent *)event { (void)event; }
 @end
 
 @interface GameWindow : NSObject
@@ -3147,12 +3158,14 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
      * stops being key, exactly like the shipped build. Continuing is opt-in
      * via the environment or bundle setting, separate from test automation.
      */
-    if (lp32_ignore_guest_focus_loss()) return YES;
-    /* Under exclusive fullscreen the game's window was key whenever the
-       application was active.  Modern activation is asynchronous and the
-       borderless window is not always picked as key, so treat an active
-       application as focus; the guest reads key events straight from the
-       event queue, so it does not need the window to be key for input. */
+    if (lp32_ignore_guest_focus_loss()) {
+        audio_bridge32_set_guest_focus(1);
+        return YES;
+    }
+    /* Modern activation is asynchronous: a fullscreen app can temporarily
+       have no key window, and an inactive app can retain a stale key flag.
+       Windowed games still require their own window to be key, so opening a
+       native dialog pauses the guest instead of sending it keyboard input. */
     BOOL active = [NSApp isActive];
     BOOL key = [[self getActiveWindow] isKeyWindow];
     /* Test hook: LP32_TEST_FOCUS_LOSS="<lost>,<regained>" (seconds after the
@@ -3202,13 +3215,15 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     }
     static int last_state = -1;
     int state = (active ? 2 : 0) | (key ? 1 : 0);
+    BOOL focused = lp32_guest_focus_from_app_state(active, key, _isFullScreen);
     if (state != last_state) {
         fprintf(stderr, "compat32: game focus %s (app %s, window %s)\n",
-                active || key ? "gained" : "lost",
+                focused ? "gained" : "lost",
                 active ? "active" : "inactive", key ? "key" : "not key");
         last_state = state;
     }
-    return active || key;
+    audio_bridge32_set_guest_focus(focused);
+    return focused;
 }
 - (void)goFullScreen { _isFullScreen = YES; [[self getActiveWindow] makeKeyAndOrderFront:nil]; }
 - (void)goWindowed { _isFullScreen = NO; [[self getActiveWindow] makeKeyAndOrderFront:nil]; }

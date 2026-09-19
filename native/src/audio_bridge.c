@@ -99,6 +99,8 @@ static uint64_t hold_last_frame_ns;
 static uint64_t hold_renders;
 static uint64_t hold_episodes;
 static uint64_t hold_total_ns;
+static bool guest_focus_active = true;
+static bool guest_focus_needs_frame;
 
 static struct audio_callback_context *audio_callbacks[kAudioCallbackCapacity];
 static uint32_t audio_callback_count;
@@ -156,14 +158,28 @@ static uint64_t hold_threshold_ns(void)
 
 static bool audio_hold_active(void)
 {
+    if (!__atomic_load_n(&guest_focus_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&guest_focus_needs_frame, __ATOMIC_ACQUIRE)) return true;
     uint64_t threshold = hold_threshold_ns();
     uint64_t last = __atomic_load_n(&hold_last_frame_ns, __ATOMIC_ACQUIRE);
     return threshold && last && monotonic_ns() - last > threshold;
 }
 
+void audio_bridge32_set_guest_focus(int focused)
+{
+    bool was_active = __atomic_exchange_n(&guest_focus_active, !!focused,
+                                           __ATOMIC_ACQ_REL);
+    if (!focused || !was_active) {
+        __atomic_store_n(&guest_focus_needs_frame, true, __ATOMIC_RELEASE);
+    }
+}
+
 void audio_bridge32_note_frame_presented(void)
 {
     uint64_t now = monotonic_ns();
+    if (__atomic_load_n(&guest_focus_active, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&guest_focus_needs_frame, false, __ATOMIC_RELEASE);
+    }
     uint64_t last = __atomic_exchange_n(&hold_last_frame_ns, now, __ATOMIC_ACQ_REL);
     uint64_t threshold = hold_threshold_ns();
     if (last && threshold && now - last > threshold) {
@@ -862,7 +878,19 @@ static bool quarantine_audio_graphs(void)
 {
     static int enabled = -1;
     if (enabled < 0) {
-        enabled = getenv("LP32_QUARANTINE_AUDIO_GRAPHS") != NULL;
+        const char *override = getenv("LP32_QUARANTINE_AUDIO_GRAPHS");
+        if (override) {
+            enabled = strcmp(override, "0") != 0;
+        } else {
+            CFTypeRef setting = CFBundleGetValueForInfoDictionaryKey(
+                CFBundleGetMainBundle(), CFSTR("LP32QuarantineAudioGraphs"));
+            enabled = setting && CFGetTypeID(setting) == CFBooleanGetTypeID() &&
+                      CFBooleanGetValue((CFBooleanRef)setting);
+        }
+        if (enabled) {
+            fputs("compat32: audio graph quarantine enabled; native graph "
+                  "memory is retained until game exit\n", stderr);
+        }
     }
     return enabled != 0;
 }
@@ -939,8 +967,9 @@ static bool synchronous_audio_teardown(void)
 {
     static int enabled = -1;
     if (enabled < 0) {
-        enabled = getenv("LP32_SYNC_AUDIO_TEARDOWN") != NULL ||
-                  quarantine_audio_graphs();
+        /* Retaining native graph memory is independent of which thread
+           performs lifecycle work. Quarantine must not stall rendering. */
+        enabled = getenv("LP32_SYNC_AUDIO_TEARDOWN") != NULL;
     }
     return enabled != 0;
 }
@@ -1028,11 +1057,25 @@ static void perform_graph_op(const struct deferred_graph_op *op)
     default:
         break;
     }
-    (void)AUGraphStop(graph);
+    status = AUGraphStop(graph);
+    if (quarantine_audio_graphs()) {
+        /* Guest handles have already been retired. Reuse callback storage
+           only after Stop has drained native callbacks; on failure retain
+           the muted contexts too. Never detach or destroy a retained graph. */
+        uint32_t released = 0;
+        if (kind == kDeferredGraphDispose && status == noErr) {
+            released = release_audio_callbacks_for_graph(graph);
+        }
+        if (trace_audio() || status != noErr) {
+            fprintf(stderr, "compat32: audio quarantined graph=%p via %s "
+                    "releasedCallbacks=%u stopStatus=%d\n", (void *)graph,
+                    deferred_graph_kind_name(kind), released, (int)status);
+        }
+        return;
+    }
     bool detach_failed = false;
     uint32_t detached = detach_audio_callbacks_for_graph(graph, &detach_failed);
     if (detach_failed) {
-        if (kind == kDeferredGraphDispose) release_audio_callbacks_for_graph(graph);
         if (trace_audio()) {
             fprintf(stderr,
                     "compat32: audio quarantined graph %p via %s after callback "
@@ -1046,11 +1089,25 @@ static void perform_graph_op(const struct deferred_graph_op *op)
     } else if (kind == kDeferredGraphClose) {
         status = AUGraphClose(graph);
     } else {
-        /* Release before disposing: once CoreAudio frees the graph, a new
-           graph may be allocated at the same address and register callbacks
-           that must not be swept up here. */
-        release_audio_callbacks_for_graph(graph);
+        /* Keep callback contexts reserved until CoreAudio has finished with
+           the graph.  Reusing one while DisposeAUGraph is still running can
+           let a late native callback enter a different guest sound.  Collect
+           exact contexts now, while the old graph address is still unique;
+           a new graph may reuse that address as soon as disposal returns. */
+        struct audio_callback_context *retired[kAudioCallbackCapacity];
+        uint32_t retired_count = 0;
+        pthread_mutex_lock(&audio_callback_registry_lock);
+        for (uint32_t index = 0; index < audio_callback_count; ++index) {
+            struct audio_callback_context *context = audio_callbacks[index];
+            if (context->in_use && context->owner_graph == graph) {
+                retired[retired_count++] = context;
+            }
+        }
+        pthread_mutex_unlock(&audio_callback_registry_lock);
         status = DisposeAUGraph(graph);
+        for (uint32_t index = 0; index < retired_count; ++index) {
+            release_audio_callback(retired[index]);
+        }
     }
     if (trace_audio()) {
         fprintf(stderr,
@@ -1273,6 +1330,10 @@ static bool graph_pool_enabled(void)
     if (enabled < 0) {
         enabled = getenv("LP32_NO_AUDIO_GRAPH_POOL") == NULL &&
                   !synchronous_audio_teardown();
+        fprintf(stderr, "compat32: audio lifecycle=%s graphPool=%s quarantine=%s\n",
+                synchronous_audio_teardown() ? "synchronous" : "deferred",
+                enabled ? "enabled" : "disabled",
+                quarantine_audio_graphs() ? "enabled" : "disabled");
     }
     return enabled != 0;
 }
@@ -1366,7 +1427,7 @@ static AUGraph build_pooled_graph(const struct graph_topology *topology)
     }
     if (ok) ok = AUGraphOpen(graph) == noErr;
     if (!ok) {
-        DisposeAUGraph(graph);
+        if (!quarantine_audio_graphs()) DisposeAUGraph(graph);
         return NULL;
     }
     return graph;
@@ -1402,7 +1463,7 @@ static void perform_graph_pool_refill(void)
         graph = NULL;
     }
     pthread_mutex_unlock(&graph_pool_lock);
-    if (graph) DisposeAUGraph(graph);
+    if (graph && !quarantine_audio_graphs()) DisposeAUGraph(graph);
 }
 
 static void discard_graph_pool_locked(void)
@@ -1558,7 +1619,7 @@ int audio_bridge32_dispatch(const char *import_name, const uint32_t *arguments,
         OSStatus status = NewAUGraph(&graph);
         uint32_t handle = status == noErr ? guest_handle_for_graph(graph) : 0;
         if (status == noErr && !handle) {
-            DisposeAUGraph(graph);
+            if (!quarantine_audio_graphs()) DisposeAUGraph(graph);
             status = kAudio_MemFullError;
         }
         if (handle) reset_graph_topology(handle);

@@ -37,3 +37,9 @@ int lp32_suppress_background_input(void)
     return lp32_continue_when_inactive() && !getenv("LP32_BACKGROUND_TEST") &&
         ![NSApp isActive];
 }
+
+int lp32_guest_focus_from_app_state(int application_active, int window_key,
+                                     int fullscreen)
+{
+    return !!application_active && (!!window_key || !!fullscreen);
+}
