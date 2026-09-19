@@ -248,6 +248,15 @@ more representative. Set `LP32_DIAGNOSTIC_DIR` to collect logs elsewhere.
 
 ## Performance HUD
 
+### Native Metal probe
+
+The compatibility renderer currently uses Apple's OpenGL implementation; it
+does not contain a native Metal game renderer. `make -C native metal-probe`
+therefore tests only the host Metal device and an offscreen render pass. It is
+useful for checking device availability and command-encoding overhead, but its
+timings must not be interpreted as LEGO game FPS. A real Metal A/B requires
+porting the guest draw/state/resource translation, not just selecting a flag.
+
 Every compatibility app built with this loader shows a small click-through
 HUD at the top left of its game window. It reports measured FPS against the
 pacing target, p95 frame time, frames above 1.5× target, process CPU use

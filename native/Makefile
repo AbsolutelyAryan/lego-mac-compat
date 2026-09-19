@@ -112,9 +112,16 @@ SDK := $(shell xcrun --sdk macosx --show-sdk-path)
 CFLAGS := -arch x86_64 -isysroot $(SDK) -mmacosx-version-min=11.0 -O2 -g -Wall -Wextra -Werror
 LDFLAGS := -Wl,-no_pie,-pagezero_size,0x1000,-segaddr,__TEXT,0x100000000,-segaddr,__LEGACY,0x1000,-segprot,__LEGACY,rwx,rwx
 
-.PHONY: test-game-profile all bundle promote-loader icons clean run run-game controller-probe test-controller test-arb-program-guard test-arb-sampler-usage mode-switch-stress
+.PHONY: test-game-profile all bundle promote-loader icons clean run run-game controller-probe test-controller test-arb-program-guard test-arb-sampler-usage mode-switch-stress metal-probe
 
 all: $(BUILD_DIR)/mode32_probe $(BUILD_DIR)/game_loader
+
+$(BUILD_DIR)/metal_probe: src/metal_probe.m | $(BUILD_DIR)
+	$(CLANG) $(CFLAGS) $^ -framework Foundation -framework Metal -o $@
+	codesign --force --sign - $@
+
+metal-probe: $(BUILD_DIR)/metal_probe
+	./$(BUILD_DIR)/metal_probe
 
 $(BUILD_DIR)/controller_probe: src/controller_probe.m | $(BUILD_DIR)
 	$(CLANG) $(CFLAGS) $^ -framework Foundation -framework GameController -o $@
