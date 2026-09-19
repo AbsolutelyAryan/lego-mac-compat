@@ -259,6 +259,9 @@ porting the guest draw/state/resource translation, not just selecting a flag.
 The `native/build/metal_probe --present` variant additionally presents a
 small real `CAMetalLayer` drawable, verifying the Metal swap path separately
 from the game's OpenGL window.
+`native/build/metal_probe --stress 2000` submits a simple 2,000-draw Metal
+frame for command-overhead comparison; it is a synthetic workload, not a
+claim that LEGO's shaders or state have been ported.
 
 Every compatibility app built with this loader shows a small click-through
 HUD at the top left of its game window. It reports measured FPS against the
