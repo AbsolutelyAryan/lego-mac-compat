@@ -27,6 +27,14 @@ int main(int argc, const char **argv)
         assert(lp32_focus_setting(on[i], 0));
     assert(lp32_continue_when_inactive() == expected);
     assert(lp32_ignore_guest_focus_loss() == expected);
+    assert(!lp32_guest_focus_from_app_state(0, 0, 0));
+    assert(!lp32_guest_focus_from_app_state(0, 1, 0));
+    assert(!lp32_guest_focus_from_app_state(0, 0, 1));
+    assert(!lp32_guest_focus_from_app_state(0, 1, 1));
+    assert(!lp32_guest_focus_from_app_state(1, 0, 0));
+    assert(lp32_guest_focus_from_app_state(1, 1, 0));
+    assert(lp32_guest_focus_from_app_state(1, 0, 1));
+    assert(lp32_guest_focus_from_app_state(1, 1, 1));
     NSApplication *saved = NSApp;
     FocusTestApp *mock = [FocusTestApp new];
     NSApp = (NSApplication *)mock;

@@ -3152,12 +3152,14 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
      * stops being key, exactly like the shipped build. Continuing is opt-in
      * via the environment or bundle setting, separate from test automation.
      */
-    if (lp32_ignore_guest_focus_loss()) return YES;
-    /* Under exclusive fullscreen the game's window was key whenever the
-       application was active.  Modern activation is asynchronous and the
-       borderless window is not always picked as key, so treat an active
-       application as focus; the guest reads key events straight from the
-       event queue, so it does not need the window to be key for input. */
+    if (lp32_ignore_guest_focus_loss()) {
+        audio_bridge32_set_guest_focus(1);
+        return YES;
+    }
+    /* Modern activation is asynchronous: a fullscreen app can temporarily
+       have no key window, and an inactive app can retain a stale key flag.
+       Windowed games still require their own window to be key, so opening a
+       native dialog pauses the guest instead of sending it keyboard input. */
     BOOL active = [NSApp isActive];
     BOOL key = [[self getActiveWindow] isKeyWindow];
     /* Test hook: LP32_TEST_FOCUS_LOSS="<lost>,<regained>" (seconds after the
@@ -3207,13 +3209,15 @@ static NSOpenGLPixelFormat *legacy_pixel_format(void)
     }
     static int last_state = -1;
     int state = (active ? 2 : 0) | (key ? 1 : 0);
+    BOOL focused = lp32_guest_focus_from_app_state(active, key, _isFullScreen);
     if (state != last_state) {
         fprintf(stderr, "compat32: game focus %s (app %s, window %s)\n",
-                active || key ? "gained" : "lost",
+                focused ? "gained" : "lost",
                 active ? "active" : "inactive", key ? "key" : "not key");
         last_state = state;
     }
-    return active || key;
+    audio_bridge32_set_guest_focus(focused);
+    return focused;
 }
 - (void)goFullScreen { _isFullScreen = YES; [[self getActiveWindow] makeKeyAndOrderFront:nil]; }
 - (void)goWindowed { _isFullScreen = NO; [[self getActiveWindow] makeKeyAndOrderFront:nil]; }

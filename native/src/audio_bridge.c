@@ -99,6 +99,8 @@ static uint64_t hold_last_frame_ns;
 static uint64_t hold_renders;
 static uint64_t hold_episodes;
 static uint64_t hold_total_ns;
+static bool guest_focus_active = true;
+static bool guest_focus_needs_frame;
 
 static struct audio_callback_context *audio_callbacks[kAudioCallbackCapacity];
 static uint32_t audio_callback_count;
@@ -156,14 +158,28 @@ static uint64_t hold_threshold_ns(void)
 
 static bool audio_hold_active(void)
 {
+    if (!__atomic_load_n(&guest_focus_active, __ATOMIC_ACQUIRE) ||
+        __atomic_load_n(&guest_focus_needs_frame, __ATOMIC_ACQUIRE)) return true;
     uint64_t threshold = hold_threshold_ns();
     uint64_t last = __atomic_load_n(&hold_last_frame_ns, __ATOMIC_ACQUIRE);
     return threshold && last && monotonic_ns() - last > threshold;
 }
 
+void audio_bridge32_set_guest_focus(int focused)
+{
+    bool was_active = __atomic_exchange_n(&guest_focus_active, !!focused,
+                                           __ATOMIC_ACQ_REL);
+    if (!focused || !was_active) {
+        __atomic_store_n(&guest_focus_needs_frame, true, __ATOMIC_RELEASE);
+    }
+}
+
 void audio_bridge32_note_frame_presented(void)
 {
     uint64_t now = monotonic_ns();
+    if (__atomic_load_n(&guest_focus_active, __ATOMIC_ACQUIRE)) {
+        __atomic_store_n(&guest_focus_needs_frame, false, __ATOMIC_RELEASE);
+    }
     uint64_t last = __atomic_exchange_n(&hold_last_frame_ns, now, __ATOMIC_ACQ_REL);
     uint64_t threshold = hold_threshold_ns();
     if (last && threshold && now - last > threshold) {
